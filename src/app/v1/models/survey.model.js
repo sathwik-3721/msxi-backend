@@ -39,16 +39,10 @@ class Survey {
             // Handle the result
             if (result.rowsAffected && result.rowsAffected[0] > 0) {
                 console.log(`Successfully updated URLs for unqId: ${uniqueId}`);
-                return {
-                    success: true,
-                    message: `URLs updated successfully for unqId: ${uniqueId}`,
-                };
+                return true;
             } else {
                 console.log(`No record found for unqId: ${uniqueId}`);
-                return {
-                    success: false,
-                    message: `No record found for unqId: ${uniqueId}`,
-                };
+                return false;
             }
 
         } catch (error) {
@@ -60,6 +54,8 @@ class Survey {
             };
         }
     }
+
+    // static async getURLS()
 }
 
 export default Survey;

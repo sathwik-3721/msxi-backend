@@ -1,7 +1,13 @@
 import { poolPromise } from "../utils/dbConnection.js";
 
 class Dealer {
-    static async insertDealerInfo(unqId, dealerCode, brandName) {
+    static async insertDealerInfo(unqId, dealerName, dealerCode, brandName) {
+        if (!unqId || !dealerName || !dealerCode || !brandName) {
+            return {
+                success: false,
+                message: "All input parameters must be provided.",
+            };
+        }
         try {
             // Create a database pool connection
             const pool = await poolPromise;
@@ -12,6 +18,7 @@ class Dealer {
             // Execute the INSERT query
             const result = await pool.request()
                 .input('unqId', unqId)
+                .input('dealer_name', dealerName)
                 .input('dealer_code', dealerCode)
                 .input('brand_name', brandName)
                 .input('survey_date', surveyDate)
@@ -19,8 +26,8 @@ class Dealer {
                 .input('survey_json_url', null) // Placeholder for survey_json_url
                 .query(`
                     INSERT INTO survey_details 
-                    (unqId, survey_pdf_url, dealer_code, brand_name, survey_date, survey_json_url)
-                    VALUES (@unqId, @survey_pdf_url, @dealer_code, @brand_name, @survey_date, @survey_json_url);
+                    (unqId, dealer_name, dealer_code, brand_name, survey_date, survey_pdf_url, survey_json_url)
+                    VALUES (@unqId, @dealer_name, @dealer_code, @brand_name, @survey_date, @survey_pdf_url, @survey_json_url);
                 `);
 
             console.log(`Insert successful for unqId: ${unqId}`);
@@ -28,9 +35,11 @@ class Dealer {
                 success: true,
                 message: `Dealer information inserted successfully with unqId: ${unqId}`
             };
-
         } catch (error) {
-            console.error("Error occurred while inserting dealer information:", error.message);
+            console.error("Error occurred while inserting dealer information:", {
+                message: error.message,
+                stack: error.stack
+            });
             return {
                 success: false,
                 message: "Error occurred while inserting dealer information.",

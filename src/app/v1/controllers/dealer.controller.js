@@ -23,7 +23,7 @@ export async function appendDealerInfo(req, res) {
         setUniqueId(id);
 
         // insert data into table
-        await Dealer.insertDealerInfo(id, dealerId, brandName);
+        await Dealer.insertDealerInfo(id, dealerName, dealerId, brandName);
 
         // call the function to append the dealer data into pdf
         await appendDealerInfoToPDF(dealerName, dealerId, brandName, date, location, visitType);
