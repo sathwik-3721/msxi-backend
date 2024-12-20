@@ -1,12 +1,13 @@
-import { appendChatToPDF, generateSpeechBuffer, getPdfFileNames, chatHistory, storeChatSummary, getUniqueId, storeChatInJSON, clearAllFilesInSession } from "../utils/helper.js";
+import { appendChatToPDF, generateSpeechBuffer, getPdfFileNames, chatHistory, storeChatSummary, getUniqueId, storeChatInJSON, clearAllFilesInSession, getJSONFileNames } from "../utils/helper.js";
 // import { poolPromise } from "../utils/dbConnection.js";
 import { VertexAI } from '@google-cloud/vertexai';
 import { Storage } from '@google-cloud/storage';
 import Survey from "../models/survey.model.js";
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs/promises';
 import dotenv from 'dotenv';
-import fs from 'fs';
+import axios from "axios";
 
 // Load environment variables
 dotenv.config();
@@ -124,6 +125,10 @@ export async function endSurvey(req, res) {
         const sessionPDF = await getPdfFileNames();
         console.log('Session PDF:', sessionPDF, typeof sessionPDF);
 
+        //  Fetch the JSON files too
+        const sessionJSON = await getJSONFileNames();
+        console.log('Session JSON:', sessionJSON)
+
         // Ensure sessionPDF is a string (or handle an array appropriately)
         if (!sessionPDF || typeof sessionPDF !== 'string') {
             throw new Error('Invalid sessionPDF: Expected a string.');
@@ -132,21 +137,21 @@ export async function endSurvey(req, res) {
         // Define the local file paths for PDF and JSON
         const sessionFolderPath = path.join(__dirname, `../session/`);
         const pdfPath = path.join(sessionFolderPath, sessionPDF);
-        const jsonPath = path.join(sessionFolderPath, `userSession_${sessionPDF.split('_')[1].replace('.pdf', '.json')}`);
+        const jsonPath = path.join(sessionFolderPath, sessionJSON);
 
         console.log('PDF Path:', pdfPath);
         console.log('JSON Path:', jsonPath);
 
-        // Verify the files exist before uploading
-        try {
-            // Check if both PDF and JSON files exist
-            await fs.promises.access(pdfPath); // Ensure PDF exists
-            await fs.promises.access(jsonPath); // Ensure JSON exists
-            console.log('Files exist:', { pdfPath, jsonPath }); // Confirm files exist
-        } catch (accessError) {
-            console.error('Access error:', accessError); // Log the exact access error
-            throw new Error(`One or both files do not exist: ${pdfPath}, ${jsonPath}`);
-        }
+        // // Verify the files exist before uploading
+        // try {
+        //     // Check if both PDF and JSON files exist
+        //     await fs.promises.access(pdfPath); // Ensure PDF exists
+        //     await fs.promises.access(jsonPath); // Ensure JSON exists
+        //     console.log('Files exist:', { pdfPath, jsonPath }); // Confirm files exist
+        // } catch (accessError) {
+        //     console.error('Access error:', accessError); // Log the exact access error
+        //     throw new Error(`One or both files do not exist: ${pdfPath}, ${jsonPath}`);
+        // }
 
         // GCP bucket destination - Restructuring URL
         const pdfDestination = `${userName}/session/pdf/${sessionPDF}`;
@@ -203,6 +208,68 @@ export async function endSurvey(req, res) {
             jsonUrl,
             surveyHistory: chatHistory,
         });
+    } catch (error) {
+        console.error('Error occurred:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Internal Server Error',
+            error: error.message,
+        });
+    }
+}
+
+// Controller to handle the survey continuation
+export async function continueSurvey(req, res) {
+    try {
+        // get the data from the body
+        const { dealerName, dealerId, brandName, date } = req.body;
+        console.log('huib', dealerName, dealerId, brandName, date);
+        
+        // validate required parameneter
+        if (!dealerName || !dealerId || !brandName || !date) {
+            return res.status(400).json({
+                success: false,
+                message: 'All details are required: dealer_name, dealer_code, brand_name, survey_date.',
+            });
+        }
+
+        // construct the session folder url
+        const sessionFolder = path.join(__dirname, '../session');
+
+        // fetch the URLs from database
+        const urlResponse = await Survey.getURLs(dealerName, dealerId, brandName, date);
+        console.log('urlres', urlResponse);
+
+        const { survey_json_url, survey_pdf_url } = urlResponse;
+        const fileUrls = [survey_json_url, survey_pdf_url]; 
+
+        // download the files to session folder
+        const downloadPromises = fileUrls.map(async (url, index) => {
+            try {
+                const response = await axios.get(url, { responseType: 'arraybuffer' });
+                const fileName = `file_${index + 1}${path.extname(url)}`;
+                const filePath = path.join(sessionFolder, fileName);
+
+                await fs.writeFile(filePath, response.data);
+
+                console.log(`File downloaded: ${fileName}`);
+                return { fileName, filePath };
+            } catch (error) {
+                console.error(`Failed to download file from ${url}:`, error);
+                throw new Error(`Failed to download file from ${url}`);
+            }
+        });
+
+        const downloadedFiles = await Promise.all(downloadPromises);
+
+        // Logic to continue the survey (forward to next steps or respond to the client)
+        console.log('Files downloaded successfully:', downloadedFiles);
+        return res.status(200).json({
+            success: true,
+            message: 'Continue to survey',
+            files: downloadedFiles,
+        });
+    
     } catch (error) {
         console.error('Error occurred:', error);
         return res.status(500).json({

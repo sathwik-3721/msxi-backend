@@ -449,6 +449,27 @@ export async function getPdfFileNames() {
     }
 }
 
+// get the existing session pdf name
+export async function getJSONFileNames() {
+    try {
+        const sessionFolderPath = path.resolve(__dirname, '../session');
+        console.log('sess', sessionFolderPath);
+        
+        // Read all files in the session folder asynchronously
+        const files = await fs.promises.readdir(sessionFolderPath);
+        
+        // Filter out PDF files
+        const jsonFiles = files.filter(file => file.endsWith('.json'));
+        
+        // Return the PDF file names
+        console.log('JSON files in the session folder:', jsonFiles);
+        return jsonFiles.toString();
+    } catch (error) {
+        console.error('Error reading JSON files:', error);
+        return [];
+    }
+}
+
 // helper function to convert the text into buffer to play it into UI frontend
 export async function generateSpeechBuffer(text) {
     try {

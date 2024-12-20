@@ -55,7 +55,53 @@ class Survey {
         }
     }
 
-    // static async getURLS()
+    static async getURLs(dealer_name, dealer_code, brand_name, survey_date) {
+        try {
+            // check if all data is given
+            if(!dealer_name || !dealer_code || !brand_name || !survey_date) {
+                throw new Error("All details are required to fetch the existing chat");
+            }
+
+            // create the connection object
+            const pool = await poolPromise;
+
+            // construct the query to execute
+            const query = `SELECT survey_json_url, survey_pdf_url
+                FROM survey_details
+                WHERE dealer_name = @dealer_name 
+                  AND dealer_code = @dealer_code
+                  AND brand_name = @brand_name
+                  AND survey_date = @survey_date;`
+                
+            // query the database
+            const result = await pool.request()
+                .input('dealer_name', dealer_name)
+                .input('dealer_code', dealer_code)
+                .input('brand_name', brand_name)
+                .input('survey_date', survey_date)
+                .query(query);
+            
+             // Check if the query returned any rows
+            if (result.recordset.length === 0) {
+                return {
+                    success: false,
+                    message: "No matching session URLs found for the given details.",
+                    data: null,
+                };
+            }
+
+            // return the URLs
+            return result.recordset[0];
+
+        } catch (error) {
+            console.error("Error updating URLs in database:", error.message);
+            throw {
+                success: false,
+                message: "Error updating survey details URLs.",
+                error: error.message,
+            };
+        }
+    }
 }
 
 export default Survey;
