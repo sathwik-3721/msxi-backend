@@ -1,13 +1,11 @@
-import { appendChatToPDF, generateSpeechBuffer, getPdfFileNames, chatHistory, storeChatSummary, getUniqueId, storeChatInJSON, clearAllFilesInSession, getJSONFileNames } from "../utils/helper.js";
+import { appendChatToPDF, generateSpeechBuffer, downloadJSONFile, getPdfFileNames, chatHistory, storeChatSummary, getUniqueId, storeChatInJSON, clearAllFilesInSession, getJSONFileNames, getUsername, getChatHistory, surveyHistory } from "../utils/helper.js";
 // import { poolPromise } from "../utils/dbConnection.js";
 import { VertexAI } from '@google-cloud/vertexai';
 import { Storage } from '@google-cloud/storage';
 import Survey from "../models/survey.model.js";
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
 import dotenv from 'dotenv';
-import axios from "axios";
 
 // Load environment variables
 dotenv.config();
@@ -29,6 +27,7 @@ const vertexAI = new VertexAI({
 // Controller to handle response from bot
 export async function beginSurvey(req, res) {
     try {
+        let surveyHistory = '';
         // const connection = await poolPromise;
         // const query = "select * from survey_details";
         // connection.execSql(new Request(query, (err, rowCount, rows) => {
@@ -58,13 +57,21 @@ export async function beginSurvey(req, res) {
             model: process.env.MODEL,
         });
 
+        // get the base and system prompt
+        const systemPrompt = process.env.SYSTEM_PROMPT;
+        const basePrompt = process.env.BASE_PROMPT;
+
+        surveyHistory = getChatHistory();
+        console.log('sur', surveyHistory);
+
         // Get the previous chats
-        if (chatHistory.length === 0) {
+        if (surveyHistory.length === 0) {
             // Initial question from the model
-            prompt = process.env.BASE_PROMPT + "There is no previous chats from user since this is the initial response from the user" + userMessage;
-            // console.log('Prompt:', prompt);
+            prompt = systemPrompt + basePrompt + "There is no previous chats from user since this is the initial response from the user" + userMessage;
+            console.log('Initial Prompt:', prompt);
         } else {
-            prompt = process.env.BASE_PROMPT + chatHistory + "The current response from user is" + userMessage;
+            prompt = systemPrompt + basePrompt + "The current response from user is" + userMessage + "The Previous chats done are" + chatHistory;
+            console.log('Done Prompt', prompt);
         }
 
         // Generate content
@@ -99,9 +106,8 @@ export async function beginSurvey(req, res) {
 // Controller to handle the survey report upload
 export async function endSurvey(req, res) {
     try {
-        // get the userName from body
-        const { userName } = req.body;
-        console.log('user', userName);
+        // get the username
+        const userName = getUsername();
 
         // Get the generative model
         const generativeModel = vertexAI.getGenerativeModel({
@@ -109,7 +115,7 @@ export async function endSurvey(req, res) {
         });
 
         // Generate the summary
-        const result = await generativeModel.generateContent(process.env.SUMMARY_PROMPT + JSON.stringify(chatHistory));
+        const result = await generativeModel.generateContent(process.env.SUMMARY_PROMPT + JSON.stringify(getChatHistory()));
         const summary = result.response.candidates[0].content.parts[0].text;
 
         console.log('Summary:', summary);
@@ -141,17 +147,6 @@ export async function endSurvey(req, res) {
 
         console.log('PDF Path:', pdfPath);
         console.log('JSON Path:', jsonPath);
-
-        // // Verify the files exist before uploading
-        // try {
-        //     // Check if both PDF and JSON files exist
-        //     await fs.promises.access(pdfPath); // Ensure PDF exists
-        //     await fs.promises.access(jsonPath); // Ensure JSON exists
-        //     console.log('Files exist:', { pdfPath, jsonPath }); // Confirm files exist
-        // } catch (accessError) {
-        //     console.error('Access error:', accessError); // Log the exact access error
-        //     throw new Error(`One or both files do not exist: ${pdfPath}, ${jsonPath}`);
-        // }
 
         // GCP bucket destination - Restructuring URL
         const pdfDestination = `${userName}/session/pdf/${sessionPDF}`;
@@ -204,9 +199,10 @@ export async function endSurvey(req, res) {
         return res.status(201).json({
             success: true,
             message: 'Files successfully uploaded',
-            pdfUrl,
-            jsonUrl,
-            surveyHistory: chatHistory,
+            fileUrls: {
+                pdfUrl,
+                jsonUrl
+            }
         });
     } catch (error) {
         console.error('Error occurred:', error);
@@ -221,11 +217,11 @@ export async function endSurvey(req, res) {
 // Controller to handle the survey continuation
 export async function continueSurvey(req, res) {
     try {
-        // get the data from the body
+        // Get the data from the body
         const { dealerName, dealerId, brandName, date } = req.body;
-        console.log('huib', dealerName, dealerId, brandName, date);
-        
-        // validate required parameneter
+        console.log('Incoming data:', dealerName, dealerId, brandName, date);
+
+        // Validate required parameters
         if (!dealerName || !dealerId || !brandName || !date) {
             return res.status(400).json({
                 success: false,
@@ -233,48 +229,120 @@ export async function continueSurvey(req, res) {
             });
         }
 
-        // construct the session folder url
-        const sessionFolder = path.join(__dirname, '../session');
+        // Construct the session folder path
+        const sessionFolder = path.resolve(__dirname, '../session');
 
-        // fetch the URLs from database
+        // Fetch URLs from the database
         const urlResponse = await Survey.getURLs(dealerName, dealerId, brandName, date);
-        console.log('urlres', urlResponse);
+        console.log('URLs fetched:', urlResponse);
 
-        const { survey_json_url, survey_pdf_url } = urlResponse;
-        const fileUrls = [survey_json_url, survey_pdf_url]; 
+        const { survey_json_url } = urlResponse; // Only using JSON file URL
+        console.log('survey_json_url', survey_json_url);
 
-        // download the files to session folder
-        const downloadPromises = fileUrls.map(async (url, index) => {
-            try {
-                const response = await axios.get(url, { responseType: 'arraybuffer' });
-                const fileName = `file_${index + 1}${path.extname(url)}`;
-                const filePath = path.join(sessionFolder, fileName);
+        // Parse GCS bucket name and file path from the URL
+        const match = survey_json_url.match(/^https:\/\/storage\.googleapis\.com\/([^\/]+)\/(.+)$/);
+        if (!match) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid JSON file URL format.',
+            });
+        }
 
-                await fs.writeFile(filePath, response.data);
+        const bucketName = match[1];
+        const filePath = match[2];
 
-                console.log(`File downloaded: ${fileName}`);
-                return { fileName, filePath };
-            } catch (error) {
-                console.error(`Failed to download file from ${url}:`, error);
-                throw new Error(`Failed to download file from ${url}`);
-            }
-        });
+        // Download JSON file using the helper function
+        try {
+            const downloadedFile = await downloadJSONFile(bucketName, filePath, sessionFolder);
+            console.log('File downloaded successfully:', downloadedFile);
 
-        const downloadedFiles = await Promise.all(downloadPromises);
-
-        // Logic to continue the survey (forward to next steps or respond to the client)
-        console.log('Files downloaded successfully:', downloadedFiles);
-        return res.status(200).json({
-            success: true,
-            message: 'Continue to survey',
-            files: downloadedFiles,
-        });
-    
+            // Respond with the file details
+            return res.status(200).json({
+                success: true,
+                message: 'JSON file downloaded successfully.',
+                file: downloadedFile,
+            });
+        } catch (err) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to download JSON file.',
+                error: err.message,
+            });
+        }
     } catch (error) {
         console.error('Error occurred:', error);
         return res.status(500).json({
             success: false,
             message: 'Internal Server Error',
+            error: error.message,
+        });
+    }
+}
+
+// Controller to get all the previous surveys
+export async function getSurveys(req, res) {
+    try {
+        // call the method to get the surveys
+        const surveyResponse = await Survey.getSurveys();
+
+        // if surveys are present
+        if (surveyResponse.success) {
+            return res.status(200).json({
+                success: true,
+                message: surveyResponse.message,
+                data: surveyResponse.data,
+            });
+        } else {
+            return res.status(404).json({
+                success: false,
+                message: surveyResponse.message,
+                data: null,
+            });
+        }
+    } catch (error) {
+        console.error('Error while fetching previous surveys', error);
+        throw error;
+    }
+}
+
+// Controller to get surveys by id
+export async function getSurveyById(req, res) {
+    try {
+        // Get the survey ID from query parameters or body
+        const surveyId = req.body.surveyId;  // Assuming the ID might come from the params or the body
+
+        // Validate that the surveyId is provided
+        if (!surveyId) {
+            return res.status(400).json({
+                success: false,
+                message: "Survey ID is required.",
+                data: null,
+            });
+        }
+
+        // Call the static method to get the survey by ID
+        const surveyResponse = await Survey.getSurveyById(surveyId);
+
+        // If survey fetched successfully
+        if (surveyResponse.success) {
+            return res.status(200).json({
+                success: true,
+                message: surveyResponse.message,
+                data: surveyResponse.data,
+            });
+        } else {
+            return res.status(404).json({
+                success: false,
+                message: surveyResponse.message,
+                data: null,
+            });
+        }
+
+    } catch (error) {
+        console.error('Error while fetching survey by ID', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error while fetching survey by ID.',
             error: error.message,
         });
     }

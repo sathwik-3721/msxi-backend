@@ -1,5 +1,5 @@
 // router set-up for survey routes
-import { beginSurvey, endSurvey, continueSurvey } from "../controllers/survey.controller.js";
+import { beginSurvey, endSurvey, continueSurvey, getSurveys, getSurveyById } from "../controllers/survey.controller.js";
 import express from 'express';
 
 const router = express.Router();
@@ -12,5 +12,11 @@ router.route('/endSurvey')
 
 router.route('/continueSurvey')
     .post(continueSurvey);
+
+router.route('/getSurveys')
+    .get(getSurveys)
+
+router.route('/getSurveyById')
+    .get(getSurveyById)
 
 export default router;

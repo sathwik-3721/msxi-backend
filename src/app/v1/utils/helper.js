@@ -30,6 +30,12 @@ const storage = new Storage({
 // define a chatHistory variable to store all the chat
 export let chatHistory = [];
 
+// define a new surveyHistory
+export let surveyHistory = {};
+
+// store the username
+export let username = '';
+
 // declare a unique id variable for storing it
 let uniqueId = '';
 
@@ -41,6 +47,74 @@ export function setUniqueId(id) {
 // function to get the uniqueId
 export function getUniqueId() {
     return uniqueId;
+}
+
+// function to set username
+export function setUsername(user_name) {
+    username = user_name;
+}
+
+// function to get the username
+export function getUsername() {
+    return username;
+}
+
+// function to set the chatHistiry
+export function setChatHistory(questions, answer) {
+    try {
+        // Ensure questions and answers are provided
+        if (!questions || !answer) {
+            throw new Error('Questions and answer are required.');
+        }
+
+        // Create a new chat history entry without id (generated automatically)
+        const newHistory = {
+            id: surveyHistory.length + 1,  // Auto-generate unique ID based on length
+            questions,
+            answer
+        };
+
+        // Save the new chat history entry
+        surveyHistory.push(newHistory);
+
+        console.log('Chat history saved successfully.');
+        return {
+            success: true,
+            message: 'Chat history saved successfully.',
+        };
+    } catch (error) {
+        console.error('Error saving chat history:', error.message);
+        return {
+            success: false,
+            message: error.message,
+        };
+    }
+}
+
+// function to get the chat history
+export function getChatHistory() {
+    try {
+        // If chat history exists, return the array, else handle gracefully
+        if (surveyHistory.length === 0) {
+            return {
+                success: false,
+                message: 'No chat history available.',
+                data: null,
+            };
+        }
+
+        return {
+            success: true,
+            message: 'Chat history fetched successfully.',
+            data: surveyHistory,
+        };
+    } catch (error) {
+        console.error('Error fetching chat history:', error.message);
+        return {
+            success: false,
+            message: error.message,
+        };
+    }
 }
 
 // function to add the user chat into a PDF
@@ -494,22 +568,6 @@ export async function generateSpeechBuffer(text) {
     }
 }
 
-// export async function storeUserChat(userMessage, botResponse) {
-//     try {
-//         const id = chatHistory.length + 1; // Generate the next ID based on array length
-//         const chat = {
-//             id,  // Assign unique ID
-//             question: userMessage,
-//             answer: botResponse,
-//         };
-
-//         chatHistory.push(chat); // Store the chat object in the array
-//         console.log(`Chat stored successfully with ID: ${id}`);
-//     } catch (err) {
-//         console.error('Error occurred while storing the chat details, Please try after some time.', err);
-//     }
-// }
-
 // function to store the summarized content
 export async function storeChatSummary(summary) {
     try {
@@ -681,4 +739,28 @@ export async function storeChatInJSON(userMessage, botResponse) {
     }
 }
 
+// function to download the files 
+export async function downloadJSONFile(bucketName, filePath, localFolder) {
+    try {
+        // get the filename
+        const fileName = path.basename(filePath);
 
+        // define the local file path
+        const localPath = path.join(localFolder, fileName);
+
+        // get the file content from GCS
+        const file = storage.bucket(bucketName).file(filePath);
+
+        // download the file to local dir
+        await file.download({ destination: localPath });
+        console.log('File dowbloaded sucessfully');
+
+        return { fileName, filePath: localPath };
+    } catch (err) {
+        console.error('Error while downloading files', err);
+        throw err;
+    }
+}
+
+// function to complete the end form
+// export as

@@ -1,3 +1,4 @@
+import { setUsername } from '../utils/helper.js';
 import pkg from 'jsonwebtoken';
 import express from 'express';
 const { sign } = pkg;
@@ -12,6 +13,9 @@ export async function loginUser(req, res) {
     try {
         // get the user details
         const { userName, password } = req.body;
+
+        // set the username
+        setUsername(userName);
 
         // check if authorized user or not
         if ((userName === loginDetails.userName) && (password === loginDetails.password)) {
